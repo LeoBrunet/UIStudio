@@ -98,17 +98,35 @@ private struct VariantsBoard: View {
     var body: some View {
         @Bindable var store = store
         let current = store.selections[screen.id] ?? [:]
-        let slots = store.slots[screen.id] ?? []
+        let allSlots = store.slots[screen.id] ?? []
+        // States aren't design questions; validated slots keep their choice. Both drop out of the comparison.
+        let designSlots = allSlots.filter { !$0.isState }
+        let stateSlots = allSlots.filter(\.isState)
+        let slots = designSlots.filter { !store.isValidated($0.path, in: screen.id) }
+        let hiddenCount = designSlots.count - slots.count
+        // No states → no « États » view; no open design question but states → show the states.
+        let style: CompareStyle = stateSlots.isEmpty
+            ? (store.compareStyle == .states ? .perSlot : store.compareStyle)
+            : (designSlots.isEmpty ? .states : store.compareStyle)
         let gap = 48 * max(store.zoom, 0.5)
 
         VStack(alignment: .leading, spacing: 28) {
             HStack(spacing: 16) {
                 Text(screen.info.name).font(.title2.weight(.bold))
-                Picker("Layout", selection: $store.compareStyle) {
-                    ForEach(CompareStyle.allCases) { Text($0.rawValue).tag($0) }
+                Picker("Layout", selection: Binding(get: { style }, set: { store.compareStyle = $0 })) {
+                    ForEach(CompareStyle.allCases.filter { $0 != .states || !stateSlots.isEmpty }) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .fixedSize()
+                if hiddenCount > 0 {
+                    Button {
+                        store.reopenAll(in: screen.id)
+                    } label: {
+                        Label("\(hiddenCount) slot\(hiddenCount > 1 ? "s" : "") validé\(hiddenCount > 1 ? "s" : "") masqué\(hiddenCount > 1 ? "s" : "") · Tout rouvrir", systemImage: "checkmark.seal")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                }
             }
 
             HStack(alignment: .top, spacing: gap) {
@@ -127,14 +145,16 @@ private struct VariantsBoard: View {
 
                 Rectangle().fill(.separator).frame(width: 1).padding(.top, 30)
 
-                if slots.isEmpty {
-                    Text("This screen has no slots.")
+                if style == .states {
+                    combinations(axes: stateSlots, current: current, gap: gap)
+                } else if slots.isEmpty {
+                    Text(hiddenCount > 0 ? "Tous les slots sont validés." : designSlots.isEmpty && !stateSlots.isEmpty ? "Pas de question de design ouverte — vois les « États »." : "This screen has no slots.")
                         .foregroundStyle(.secondary)
                         .padding(.top, 30)
-                } else if store.compareStyle == .perSlot {
+                } else if style == .perSlot {
                     perSlot(slots: slots, current: current, gap: gap)
                 } else {
-                    combinations(slots: slots, current: current, gap: gap)
+                    combinations(axes: slots.filter { $0.depth == 0 }, current: current, gap: gap)
                 }
             }
         }
@@ -174,8 +194,8 @@ private struct VariantsBoard: View {
     }
 
     /// Every combination of the top-level slots (nested slots keep their current choice).
-    private func combinations(slots: [SlotInfo], current: [String: String], gap: CGFloat) -> some View {
-        let topLevel = slots.filter { $0.depth == 0 }
+    /// Every combination of the given slots (others keep their current choice).
+    private func combinations(axes topLevel: [SlotInfo], current: [String: String], gap: CGFloat) -> some View {
         var combos: [[String: String]] = [current]
         for slot in topLevel {
             combos = combos.flatMap { combo in

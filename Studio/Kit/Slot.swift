@@ -28,6 +28,7 @@ struct Variant {
 struct Slot: View {
     let name: String
     let variants: [Variant]
+    var isState = false
 
     @Environment(\.slotParentPath) private var parentPath
     @Environment(\.slotSelections) private var selections
@@ -45,13 +46,41 @@ struct Slot: View {
             name: name,
             depth: path.split(separator: "/").count - 1,
             variants: variants.map(\.name),
-            selected: chosen?.name ?? ""
+            selected: chosen?.name ?? "",
+            isState: isState
         )
         return (chosen?.content ?? AnyView(Color.clear.frame(width: 0, height: 0)))
             .environment(\.slotParentPath, path)
             .transformAnchorPreference(key: SlotBoundsKey.self, value: .bounds) { $0[path] = $1 }
             .studioComponent(path, kind: "Slot")
             .transformPreference(SlotListKey.self) { $0.insert(info, at: 0) }
+    }
+}
+
+/// One state of a screen (what the user sees depending on data or what they did), for `States`.
+typealias ScreenState = Variant
+
+/// Not a design question: the different states of the same screen (empty / filled, planned / done…).
+/// Same mechanics as `Slot`, but shown in the inspector's « États » section, never validated,
+/// left out of design comparisons, and laid out side by side in the « États » view.
+///
+///     States("Séance") {
+///         ScreenState("Prévue") { ... }
+///         ScreenState("Réalisée") { ... }
+///     }
+struct States: View {
+    let name: String
+    let states: [Variant]
+
+    init(_ name: String, @VariantBuilder _ states: () -> [Variant]) {
+        self.name = name
+        self.states = states()
+    }
+
+    var body: some View {
+        var slot = Slot(name) { states }
+        slot.isState = true
+        return slot
     }
 }
 
@@ -74,6 +103,8 @@ struct SlotInfo: Equatable, Identifiable {
     let depth: Int
     let variants: [String]
     let selected: String
+    /// Declared with `States`: a state of the screen, not a design question.
+    var isState = false
 
     var id: String { path }
 }

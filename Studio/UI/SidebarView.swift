@@ -39,7 +39,10 @@ struct SidebarView: View {
 
     private func row(_ screen: ScreenEntry) -> some View {
         let isSelected = store.selectedScreenID == screen.id
-        let slotCount = store.slots[screen.id]?.count ?? 0
+        // Proposals left to look at: variants of open design slots (states and validated slots don't count).
+        let slotCount = (store.slots[screen.id] ?? [])
+            .filter { !$0.isState && !store.isValidated($0.path, in: screen.id) }
+            .reduce(0) { $0 + $1.variants.count }
         return Button {
             store.selectedScreenID = screen.id
             store.scrollTarget = screen.id

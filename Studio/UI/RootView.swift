@@ -104,6 +104,7 @@ struct RootView: View {
             }
             .onChange(of: store.selectedScreenID) { floatingSidebar = false }
         }
+        .background { SlotProbe() }
         .onAppear(perform: hideTitlebar)
         .task {
             while !Task.isCancelled {
@@ -500,5 +501,30 @@ private struct CommentComposer: View {
     private func add() {
         store.addComment(text: text)
         text = ""
+    }
+}
+
+/// Renders, invisibly and one at a time, the screens of the current project whose slots aren't known yet,
+/// so the sidebar can show their open proposals before they appear on the canvas.
+private struct SlotProbe: View {
+    @Environment(StudioStore.self) private var store
+
+    var body: some View {
+        if let screen = store.screens.first(where: { store.slots[$0.id] == nil }) {
+            let device = store.device(for: screen)
+            PhoneView(screen: screen, device: device, selections: store.selections[screen.id] ?? [:], interactive: false)
+                .frame(width: device.size.width, height: device.size.height)
+                .opacity(0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .frame(width: 1, height: 1)
+                .clipped()
+                .id(screen.id)
+                .task(id: screen.id) {
+                    // A screen without slots never reports anything: mark it known so the probe moves on.
+                    try? await Task.sleep(for: .milliseconds(400))
+                    if store.slots[screen.id] == nil { store.slots[screen.id] = [] }
+                }
+        }
     }
 }

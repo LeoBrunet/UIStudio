@@ -6,7 +6,9 @@ struct InspectorView: View {
 
     var body: some View {
         if let screen = store.selectedScreen {
-            let slots = store.slots[screen.id] ?? []
+            let allSlots = store.slots[screen.id] ?? []
+            let slots = allSlots.filter { !$0.isState }
+            let states = allSlots.filter(\.isState)
             List {
                 Section {
                     VStack(alignment: .leading, spacing: 4) {
@@ -18,13 +20,45 @@ struct InspectorView: View {
                     }
                 }
 
-                Section("Slots") {
+                if !states.isEmpty {
+                    Section {
+                        ForEach(states) { slot in
+                            StateRow(screenID: screen.id, slot: slot)
+                        }
+                    } header: {
+                        HStack {
+                            Text("États")
+                            Spacer()
+                            Button("Voir côte à côte") {
+                                store.compareStyle = .states
+                                store.compareMode = true
+                            }
+                            .font(.caption)
+                            .buttonStyle(.borderless)
+                            .help("Afficher tous les états de l'écran côte à côte")
+                        }
+                    }
+                }
+
+                let validatedCount = slots.filter { store.isValidated($0.path, in: screen.id) }.count
+                Section {
                     if slots.isEmpty {
-                        Text("No open questions on this screen.")
+                        Text(states.isEmpty ? "No open questions on this screen." : "Pas de question de design ouverte.")
                             .foregroundStyle(.secondary)
                     }
                     ForEach(slots) { slot in
                         SlotRow(screenID: screen.id, slot: slot)
+                    }
+                } header: {
+                    HStack {
+                        Text("Slots")
+                        Spacer()
+                        if validatedCount > 0 {
+                            Button("Tout rouvrir (\(validatedCount))") { store.reopenAll(in: screen.id) }
+                                .font(.caption)
+                                .buttonStyle(.borderless)
+                                .help("Réafficher toutes les propositions masquées de cet écran")
+                        }
                     }
                 }
 
@@ -69,29 +103,100 @@ private struct SlotRow: View {
 
     var body: some View {
         let isFocused = store.selectedSlotPath == slot.path
+        let isValidated = store.isValidated(slot.path, in: screenID)
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: slot.depth > 0 ? "arrow.turn.down.right" : "square.dashed")
-                    .foregroundStyle(.secondary)
+                Image(systemName: isValidated ? "checkmark.seal.fill" : slot.depth > 0 ? "arrow.turn.down.right" : "square.dashed")
+                    .foregroundStyle(isValidated ? Color.green : .secondary)
                 Text(slot.name).font(.headline)
                 Spacer()
-                Text("\((slot.variants.firstIndex(of: slot.selected) ?? 0) + 1)/\(slot.variants.count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                if isValidated {
+                    Button("Rouvrir", systemImage: "arrow.uturn.backward") { store.reopen(slot.path, in: screenID) }
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
+                        .buttonStyle(.borderless)
+                        .help("Réafficher les \(slot.variants.count - 1) autres propositions")
+                } else {
+                    Text("\((slot.variants.firstIndex(of: slot.selected) ?? 0) + 1)/\(slot.variants.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    if slot.variants.count > 1 {
+                        Button("Valider", systemImage: "checkmark.circle") { store.validate(slot, in: screenID) }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .help("Valider « \(slot.selected) » et masquer les autres propositions")
+                    }
+                }
             }
+            if isValidated {
+                HStack(spacing: 8) {
+                    chip(slot.selected, isOn: true)
+                    if slot.variants.count > 1 {
+                        Text("\(slot.variants.count - 1) masquée\(slot.variants.count > 2 ? "s" : "")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                FlowLayout(spacing: 6) {
+                    ForEach(slot.variants, id: \.self) { variant in
+                        Button {
+                            store.select(variant, slot: slot.path, in: screenID)
+                            store.selectedSlotPath = slot.path
+                        } label: {
+                            chip(variant, isOn: variant == slot.selected)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(.leading, CGFloat(slot.depth) * 14)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture { store.selectedSlotPath = isFocused ? nil : slot.path }
+        .onHover { store.hoveredSlotPath = $0 ? slot.path : nil }
+        .listRowBackground(isFocused ? Color.accentColor.opacity(0.12) : nil)
+    }
+
+    private func chip(_ variant: String, isOn: Bool) -> some View {
+        Text(variant)
+            .font(.subheadline)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .foregroundStyle(isOn ? Color.white : Color.primary)
+            .background(Capsule().fill(isOn ? Color.accentColor : Color(uiColor: .tertiarySystemFill)))
+    }
+}
+
+/// A state of the screen (`States`): pick which one to show; never validated, not a design choice.
+private struct StateRow: View {
+    let screenID: String
+    let slot: SlotInfo
+    @Environment(StudioStore.self) private var store
+
+    var body: some View {
+        let isFocused = store.selectedSlotPath == slot.path
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "rectangle.stack")
+                    .foregroundStyle(.secondary)
+                Text(slot.name).font(.headline)
+            }
+            // Outlined chips (design variants use filled ones) so states never read as choices to validate.
             FlowLayout(spacing: 6) {
-                ForEach(slot.variants, id: \.self) { variant in
-                    let isOn = variant == slot.selected
+                ForEach(slot.variants, id: \.self) { state in
+                    let isOn = state == slot.selected
                     Button {
-                        store.select(variant, slot: slot.path, in: screenID)
+                        store.select(state, slot: slot.path, in: screenID)
                         store.selectedSlotPath = slot.path
                     } label: {
-                        Text(variant)
-                            .font(.subheadline)
+                        Text(state)
+                            .font(.subheadline.weight(isOn ? .semibold : .regular))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
-                            .foregroundStyle(isOn ? Color.white : Color.primary)
-                            .background(Capsule().fill(isOn ? Color.accentColor : Color(uiColor: .tertiarySystemFill)))
+                            .foregroundStyle(isOn ? Color.accentColor : Color.primary)
+                            .overlay(Capsule().stroke(isOn ? Color.accentColor : Color(uiColor: .separator), lineWidth: isOn ? 1.5 : 1))
                     }
                     .buttonStyle(.plain)
                 }

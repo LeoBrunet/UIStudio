@@ -22,7 +22,10 @@ final class StudioStore {
     var compareMode: Bool { didSet { save() } }
     var compareStyle: CompareStyle { didSet { save() } }
     /// Screen id -> (slot path -> variant name)
-    var selections: [String: [String: String]] { didSet { save() } }
+    var selections: [String: [String: String]] { didSet { save(); writeChoices() } }
+    /// Screen id -> slot paths the user validated: only the chosen variant is shown,
+    /// the other proposals are hidden (never deleted) until the slot is reopened.
+    var validated: [String: Set<String>] { didSet { save(); writeChoices() } }
 
     /// Slots currently rendered by each screen (reported by the phones, not persisted).
     var slots: [String: [SlotInfo]] = [:]
@@ -201,6 +204,25 @@ final class StudioStore {
         selections[screenID, default: [:]][path] = variant
     }
 
+    func isValidated(_ path: String, in screenID: String) -> Bool {
+        validated[screenID]?.contains(path) ?? false
+    }
+
+    /// Validates the slot's current variant (recorded explicitly so it survives reordering in code).
+    func validate(_ slot: SlotInfo, in screenID: String) {
+        selections[screenID, default: [:]][slot.path] = slot.selected
+        validated[screenID, default: []].insert(slot.path)
+    }
+
+    func reopen(_ path: String, in screenID: String) {
+        validated[screenID]?.remove(path)
+        if validated[screenID]?.isEmpty == true { validated[screenID] = nil }
+    }
+
+    func reopenAll(in screenID: String) {
+        validated[screenID] = nil
+    }
+
     func resetSelections(for screenID: String) {
         selections[screenID] = nil
     }
@@ -209,7 +231,7 @@ final class StudioStore {
     func summary(for screen: ScreenEntry) -> String {
         let slots = slots[screen.id] ?? []
         guard !slots.isEmpty else { return "\(screen.info.name): no slots" }
-        let lines = slots.map { "- \($0.path): \($0.selected)" }
+        let lines = slots.map { "- \($0.path): \($0.selected)" + ($0.isState ? " (état)" : isValidated($0.path, in: screen.id) ? " (validé)" : "") }
         return "\(screen.info.name) (\(screen.info.flow))\n" + lines.joined(separator: "\n")
     }
 
@@ -227,6 +249,7 @@ final class StudioStore {
         var compareMode: Bool?
         var compareStyle: String?
         var selections: [String: [String: String]]
+        var validated: [String: [String]]?
     }
 
     private static let key = "studio.state"
@@ -249,6 +272,7 @@ final class StudioStore {
         compareMode = saved?.compareMode ?? false
         compareStyle = saved?.compareStyle.flatMap(CompareStyle.init(rawValue:)) ?? .perSlot
         selections = saved?.selections ?? [:]
+        validated = (saved?.validated ?? [:]).mapValues(Set.init)
         loading = false
     }
 
@@ -258,10 +282,23 @@ final class StudioStore {
             selectedScreenID: selectedScreenID, project: project, lastScreenByProject: lastScreenByProject, zoom: zoom, deviceID: deviceID,
             appearance: appearance.rawValue,
             showInspector: showInspector, showSidebar: showSidebar, compareMode: compareMode, compareStyle: compareStyle.rawValue,
-            selections: selections
+            selections: selections,
+            validated: validated.mapValues { $0.sorted() }
         )
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: Self.key)
+        }
+    }
+
+    /// Mirrors the picked variants and validated slots to `Feedback/choices.json` so Claude can read them.
+    private func writeChoices() {
+        guard !loading else { return }
+        var out: [String: [String: Any]] = [:]
+        for id in Set(selections.keys).union(validated.keys) {
+            out[id] = ["selections": selections[id] ?? [:], "validated": (validated[id] ?? []).sorted()]
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: out, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]) {
+            try? data.write(to: FeedbackFiles.root.appendingPathComponent("choices.json"), options: .atomic)
         }
     }
 }
@@ -269,5 +306,7 @@ final class StudioStore {
 enum CompareStyle: String, CaseIterable, Identifiable {
     case perSlot = "Per slot"
     case combinations = "All combinations"
+    /// Every state of the screen side by side (`States`), not a design comparison.
+    case states = "États"
     var id: String { rawValue }
 }
