@@ -4,7 +4,7 @@ A small Mac app for laying out iOS screens written in SwiftUI. Every screen is a
 
 I built it to design screens together with Claude Code: I describe a screen, Claude writes the SwiftUI, and I compare the options side by side in the app.
 
-![Variants of a login screen in UI Studio](docs/variants.png)
+![Comparing the variants of a recipe screen in UI Studio](docs/variants.png)
 
 ## Features
 
@@ -13,7 +13,7 @@ I built it to design screens together with Claude Code: I describe a screen, Cla
 - **Comments.** Pin a comment on any element of a screen. Comments are saved as JSON with an annotated screenshot, so an agent can read and apply them.
 - **Design kit** (`DesignKit/`): spacing, radius, colors, fonts and a few base components shared by every screen. It can be dropped into a real app as is.
 - **Mac windows.** A screen can also be shown as a macOS window instead of a phone.
-- **Several projects** in the same app, each with its own screens.
+- **Several projects** in the same app, each with its own screens. `Screens/PantryDemo/` is a small recipe app you can use as an example.
 
 ## Requirements
 
