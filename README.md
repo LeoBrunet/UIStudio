@@ -23,7 +23,7 @@ I built it to design screens together with Claude Code: I describe a screen, Cla
 ## Getting started
 
 ```bash
-git clone git@github.com:leo-brunet/UIStudio.git
+git clone https://github.com/LeoBrunet/UIStudio.git
 cd UIStudio
 ./studio.sh
 ```
